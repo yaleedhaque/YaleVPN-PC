@@ -1,0 +1,10 @@
+[Unit]
+Description=YaleVPN-PC egress IP rotation (re-register WARP consumer tunnel)
+After=network-online.target warp-svc.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/yalevpn-pc rotate --quiet
+TimeoutStartSec=120
+Nice=10

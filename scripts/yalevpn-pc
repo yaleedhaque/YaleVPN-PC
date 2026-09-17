@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+# YaleVPN-PC — desktop WireGuard/WARP client + public-IP rotation for Linux.
+# Mirror of the YaleVPN Android app (WireGuard + WARP profile import), plus
+# automatic egress-IP rotation for the WARP consumer tunnel.
+#
+# Usage: yalevpn-pc <command> [args]
+#   status                 WARP state, registration, current egress IPs
+#   ip                     print current egress IPv4 / IPv6
+#   up | down              connect / disconnect the WARP tunnel
+#   rotate [--quiet]       re-register WARP -> fresh egress IP (retries x3)
+#   timer on|off|status    systemd user timer for periodic rotation
+#   conf                   print the WARP wireguard profile (mobile-app parity)
+#   export windows [path]  write a .conf the Windows WireGuard client imports
+#   export linux  [path]   write a wg-quick .conf for Linux (needs wireguard-tools)
+#   help
+set -uo pipefail
+
+STATE_DIR="${YALEVPN_DIR:-$HOME/.config/yalevpn-pc}"
+LOG="$HOME/.config/opencode/logs/yalevpn-pc.log"
+MEMORY="$HOME/.config/opencode/shared/memory.md"
+WIN_DIR_DEFAULT="/mnt/windows_d/OpenCode Projects/PC Apps/YaleVPN-PC/config"
+LINUX_CONF_DEFAULT="$STATE_DIR/wg0.conf"
+QUIET=0
+
+mkdir -p "$STATE_DIR" "$(dirname "$LOG")" 2>/dev/null || true
+
+ts() { date '+%F %T'; }
+log() { printf '[%s] %s\n' "$(ts)" "$*" >>"$LOG" 2>/dev/null || true; [ "$QUIET" = 1 ] || printf '[%s] %s\n' "$(ts)" "$*" >&2; }
+die() { log "ERROR: $*"; exit 1; }
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# ---- egress IPs -----------------------------------------------------------
+egress_v4() { curl -s --max-time 8 -4 https://api64.ipify.org 2>/dev/null; }
+egress_v6() { curl -s --max-time 8 -6 https://api64.ipify.org 2>/dev/null; }
+
+# ---- WARP helpers ---------------------------------------------------------
+warp_state() { warp-cli status 2>/dev/null | sed -n 's/^Status update: //p' | head -1; }
+reg_account() { warp-cli registration show 2>/dev/null | sed -n 's/^Account type: //p' | head -1; }
+reg_id() { warp-cli registration show 2>/dev/null | sed -n 's/^ID: //p' | head -1; }
+
+# Pull the WARP account from the memory mirror (vault .gpg needs a session key).
+warp_account_field() { # $1 = field name
+  [ -f "$MEMORY" ] || return 1
+  local line
+  line=$(grep -m1 'Vault key `yalevpn-warp-account`' "$MEMORY" 2>/dev/null) || return 1
+  printf '%s\n' "$line" | sed 's/.*\*\*: *//' | tr '|' '\n' |
+    awk -F'=' -v k="$1" '$1==k {sub(/^[^=]*=/,""); print; exit}'
+}
+
+require_warp() { have warp-cli || die "warp-cli not found (install cloudflare-warp)"; }
+
+# ---- commands -------------------------------------------------------------
+cmd_ip() { printf 'v4=%s v6=%s\n' "$(egress_v4)" "$(egress_v6)"; }
+
+cmd_status() {
+  require_warp
+  printf 'warp     : %s\n' "$(warp_state)"
+  printf 'account  : %s\n' "$(reg_account)"
+  printf 'reg id   : %s\n' "$(reg_id)"
+  printf 'egress   : %s\n' "$(cmd_ip)"
+  systemctl --user is-active yalevpn-pc-rotate.timer >/dev/null 2>&1 &&
+    printf 'rotate   : timer active\n' || printf 'rotate   : timer off\n'
+}
+
+cmd_up()   { require_warp; warp-cli connect >/dev/null 2>&1; sleep 2; log "up -> $(warp_state)"; }
+cmd_down() { require_warp; warp-cli disconnect >/dev/null 2>&1; sleep 2; log "down -> $(warp_state)"; }
+
+cmd_rotate() {
+  [ "${1:-}" = "--quiet" ] && QUIET=1
+  require_warp
+  local acct before after attempt v4b v6b
+  acct=$(reg_account)
+  case "$acct" in
+    Free*) : ;;
+    *) die "refusing to rotate: registration is '${acct:-unknown}' (not a Free consumer reg)" ;;
+  esac
+  before="$(egress_v4) $(egress_v6)"; v4b=$(printf '%s' "$before" | cut -d' ' -f1); v6b=$(printf '%s' "$before" | cut -d' ' -f2)
+  log "rotate: before v4=$v4b v6=$v6b"
+  for attempt in 1 2 3; do
+    warp-cli disconnect >/dev/null 2>&1
+    warp-cli registration delete >/dev/null 2>&1
+    warp-cli registration new   >/dev/null 2>&1
+    warp-cli connect            >/dev/null 2>&1
+    sleep 5
+    after="$(egress_v4) $(egress_v6)"
+    if [ "$(printf '%s' "$after" | cut -d' ' -f2)" != "$v6b" ]; then
+      log "rotate: OK on attempt $attempt -> $(printf '%s' "$after" | sed 's/ / v6=/;s/^/v4=/')"
+      printf 'ROTATED attempt=%s before_v4=%s after=%s\n' "$attempt" "$v4b" "$after"
+      return 0
+    fi
+  done
+  log "rotate: WEAK — egress unchanged after $attempt attempts (v4 is pinned by Cloudflare WARP)"
+  printf 'WEAK before=%s after=%s\n' "$before" "$after"
+  return 1
+}
+
+cmd_conf() {
+  local pk peer ep
+  pk=$(warp_account_field private_key)    || die "cannot read private_key from $MEMORY"
+  peer=$(warp_account_field peer_pub)     || die "cannot read peer_pub from $MEMORY"
+  ep=$(warp_account_field endpoint)       || die "cannot read endpoint from $MEMORY"
+  cat <<EOF
+[Interface]
+PrivateKey = $pk
+Address = 172.16.0.2/32
+DNS = 1.1.1.1, 1.0.0.1
+MTU = 1280
+
+[Peer]
+PublicKey = $peer
+AllowedIPs = 0.0.0.0/0, ::/0
+Endpoint = $ep
+PersistentKeepalive = 25
+EOF
+}
+
+cmd_export() {
+  local target="${1:-windows}" path="${2:-}"
+  case "$target" in
+    windows) path="${path:-$WIN_DIR_DEFAULT/yalevpn-windows.conf}" ;;
+    linux)   path="${path:-$LINUX_CONF_DEFAULT}" ;;
+    *) die "export target must be 'windows' or 'linux'" ;;
+  esac
+  mkdir -p "$(dirname "$path")"
+  cmd_conf >"$path"
+  chmod 600 "$path"
+  log "exported $target profile -> $path"
+  printf 'wrote %s (%s)\n' "$path" "$(wc -c <"$path" | tr -d ' ') bytes"
+  [ "$target" = linux ] && grep -q '^\[Interface\]' "$path" && \
+    printf 'see: wg-quick up %s  (apt install wireguard-tools first)\n' "$path"
+}
+
+cmd_timer() {
+  local action="${1:-status}"
+  case "$action" in
+    on)
+      systemctl --user daemon-reload
+      systemctl --user enable --now yalevpn-pc-rotate.timer >/dev/null 2>&1
+      log "timer on ($(systemctl --user list-timers yalevpn-pc-rotate.timer --no-legend 2>/dev/null | awk '{print $1,$2,$3}'))"
+      ;;
+    off) systemctl --user disable --now yalevpn-pc-rotate.timer >/dev/null 2>&1; log "timer off" ;;
+    status) systemctl --user list-timers yalevpn-pc-rotate.timer 2>/dev/null | head -3 ;;
+    *) die "timer usage: yalevpn-pc timer on|off|status" ;;
+  esac
+}
+
+cmd_help() { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; }
+
+case "${1:-help}" in
+  status) cmd_status ;;
+  ip) cmd_ip ;;
+  up) cmd_up ;;
+  down) cmd_down ;;
+  rotate) shift; cmd_rotate "${1:-}" ;;
+  timer) shift; cmd_timer "${1:-status}" ;;
+  conf) cmd_conf ;;
+  export) shift; cmd_export "${1:-windows}" "${2:-}" ;;
+  help|-h|--help) cmd_help ;;
+  *) cmd_help; exit 1 ;;
+esac

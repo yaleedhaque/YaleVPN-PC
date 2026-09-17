@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodic YaleVPN-PC WARP egress rotation
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=2h
+Persistent=true
+Unit=yalevpn-pc-rotate.service
+
+[Install]
+WantedBy=timers.target
