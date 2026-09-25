@@ -46,11 +46,9 @@ jobs:
       - name: Build
         run: |
           pip install --quiet cryptography pyinstaller
-          python -m PyInstaller --onefile --name yalevpn \
-            --hidden-import tkinter --hidden-import _tkinter \
-            --paths src \
-            --distpath dist \
-            packaging/entry.py
+          python -m PyInstaller --onefile --name yalevpn --hidden-import tkinter --hidden-import _tkinter --paths src --distpath dist packaging/entry.py
+          echo "built yalevpn:"
+          ls -la dist
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
