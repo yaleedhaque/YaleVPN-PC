@@ -73,7 +73,7 @@ jobs:
         run: |
           set -e
           ls -la artifacts
-          gh release create "$GITHUB_REF_NAME" \
+          gh release create -R yaleedhaque/YaleVPN-PC "$GITHUB_REF_NAME" \
             artifacts/yalevpn.exe \
             artifacts/yalevpn \
             --title "YaleVPN-PC $GITHUB_REF_NAME" \
