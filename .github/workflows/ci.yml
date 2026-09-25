@@ -74,8 +74,8 @@ jobs:
           set -e
           ls -la artifacts
           gh release create "$GITHUB_REF_NAME" \
-            artifacts/yalevpn-win64.exe \
-            artifacts/yalevpn-linux64 \
+            artifacts/yalevpn.exe \
+            artifacts/yalevpn \
             --title "YaleVPN-PC $GITHUB_REF_NAME" \
             --notes "Prebuilt YaleVPN-PC binaries (CI). Linux binary works on modern distros;
                        RFC 7748 keys via bundled cryptography; Windows binary needs the official
