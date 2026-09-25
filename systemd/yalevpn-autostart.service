@@ -1,0 +1,16 @@
+[Unit]
+Description=YaleVPN autostart
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=%h/.local/bin/yalevpn up warp
+ExecStop=%h/.local/bin/yalevpn down
+Nice=10
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=default.target

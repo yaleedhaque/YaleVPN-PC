@@ -6,5 +6,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 ExecStart=%h/.local/bin/yalevpn-pc rotate --quiet
-TimeoutStartSec=120
+TimeoutStartSec=180
 Nice=10
+Restart=on-failure
+RestartSec=90

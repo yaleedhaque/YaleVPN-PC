@@ -1,0 +1,4 @@
+# Build-time dependencies for the Windows .exe (GitHub Actions) and packaging.
+# The client itself runs on pure stdlib; `cryptography` upgrades keygen/vault.
+cryptography>=41
+pyinstaller>=6

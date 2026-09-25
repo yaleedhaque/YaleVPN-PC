@@ -1,0 +1,87 @@
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  test:
+    name: tests (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          pip install --quiet cryptography
+          sudo apt-get update -qq && sudo apt-get install -y -qq wireguard-tools
+      - name: Run core + CLI tests
+        run: |
+          python3 tests/test_core.py
+          python3 tests/test_cli.py
+          python3 -m yalevpn --version || true
+        env:
+          PYTHONPATH: src
+          HOME: /tmp/testhome
+          XDG_CONFIG_HOME: /tmp/testhome/.config
+          XDG_STATE_HOME: /tmp/testhome/.state
+
+  build:
+    name: build (${{ matrix.os }})
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build
+        run: |
+          pip install --quiet cryptography pyinstaller
+          python -m PyInstaller --onefile --name yalevpn \
+            --hidden-import tkinter --hidden-import _tkinter \
+            --paths src \
+            --distpath dist \
+            packaging/entry.py
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: yalevpn-${{ startsWith(matrix.os, 'windows') && 'win64' || 'linux64' }}
+          path: |
+            dist/yalevpn${{ startsWith(matrix.os, 'windows') && '.exe' || '' }}
+            dist/yalevpn${{ startsWith(matrix.os, 'windows') && '.exe' || '' }}.*
+
+  release:
+    name: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Tagged release artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          ls -la artifacts
+          gh release create "$GITHUB_REF_NAME" \
+            artifacts/yalevpn-win64.exe \
+            artifacts/yalevpn-linux64 \
+            --title "YaleVPN-PC $GITHUB_REF_NAME" \
+            --notes "Prebuilt YaleVPN-PC binaries (CI). Linux binary works on modern distros;
+RFC 7748 keys via bundled cryptography; Windows binary needs the official
+WireGuard client (https://www.wireguard.com/install/) for the tunnel backend." \
+            --generate-notes

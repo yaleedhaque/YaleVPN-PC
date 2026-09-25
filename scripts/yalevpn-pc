@@ -69,11 +69,17 @@ cmd_down() { require_warp; warp-cli disconnect >/dev/null 2>&1; sleep 2; log "do
 cmd_rotate() {
   [ "${1:-}" = "--quiet" ] && QUIET=1
   require_warp
-  local acct before after attempt v4b v6b
+  local acct before after attempt v4b v6b tries
   acct=$(reg_account)
+  # `warp-cli registration show` transiently returns nothing around daemon
+  # churn or a mid-rotate disconnect; retry before treating it as a refusal.
+  tries=1
+  while [ "$tries" -le 5 ] && { [ -z "$acct" ] || [ "$acct" = unknown ]; }; do
+    sleep 1; tries=$((tries+1)); acct=$(reg_account)
+  done
   case "$acct" in
     Free*) : ;;
-    *) die "refusing to rotate: registration is '${acct:-unknown}' (not a Free consumer reg)" ;;
+    *) die "refusing to rotate: registration is '${acct:-unknown}' (not a Free consumer reg), retried $((tries-1))x" ;;
   esac
   before="$(egress_v4) $(egress_v6)"; v4b=$(printf '%s' "$before" | cut -d' ' -f1); v6b=$(printf '%s' "$before" | cut -d' ' -f2)
   log "rotate: before v4=$v4b v6=$v6b"
@@ -84,7 +90,9 @@ cmd_rotate() {
     warp-cli connect            >/dev/null 2>&1
     sleep 5
     after="$(egress_v4) $(egress_v6)"
-    if [ "$(printf '%s' "$after" | cut -d' ' -f2)" != "$v6b" ]; then
+    # Success = the v4 OR v6 address moved; v6 is not always assigned.
+    if [ "$(printf '%s' "$after" | cut -d' ' -f1)" != "$v4b" ] || \
+       [ "$(printf '%s' "$after" | cut -d' ' -f2)" != "$v6b" ]; then
       log "rotate: OK on attempt $attempt -> $(printf '%s' "$after" | sed 's/ / v6=/;s/^/v4=/')"
       printf 'ROTATED attempt=%s before_v4=%s after=%s\n' "$attempt" "$v4b" "$after"
       return 0

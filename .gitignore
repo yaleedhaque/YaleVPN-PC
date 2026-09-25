@@ -1,6 +1,28 @@
-config/*.conf
-config/*.key
-*.gpg
+# YaleVPN-PC
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# local state, never commit
+state/
+*.log
+
+# credentials / secrets — kept in the gpg vault, not here
+*.gpg
+credentials*
+.env
+secrets*
+
+# contains real WARP private key — never commit
+config/
+
+# OS junk
 .DS_Store
+Thumbs.db
+
+# editor
+.idea/
+.vscode/

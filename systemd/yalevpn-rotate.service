@@ -1,0 +1,10 @@
+[Unit]
+Description=YaleVPN WARP IP rotation
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/yalevpn rotate --quiet
+TimeoutStartSec=180
+Nice=10
+Restart=on-failure
+RestartSec=90

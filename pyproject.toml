@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yalevpn-pc"
+version = "2.0.0"
+description = "Desktop WireGuard + WARP VPN client for Linux and Windows (offline-first, on-device keys)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "yaleedhaque", email = "yaleedhaque@users.noreply.github.com" }]
+keywords = ["vpn", "wireguard", "warp", "cloudflare", "kill-switch", "privacy"]
+classifiers = [
+    "Environment :: Console",
+    "Environment :: X11 Applications :: Tk",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Topic :: System :: Networking :: Firewalls",
+    "Topic :: System :: Networking",
+]
+dependencies = []
+
+[project.optional-dependencies]
+crypto = ["cryptography>=41"]
+build = ["pyinstaller>=6"]
+
+[project.scripts]
+yalevpn = "yalevpn.cli:main"
+yalevpn-pc = "yalevpn.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
