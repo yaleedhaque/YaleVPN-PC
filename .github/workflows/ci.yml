@@ -82,6 +82,6 @@ jobs:
             artifacts/yalevpn-linux64 \
             --title "YaleVPN-PC $GITHUB_REF_NAME" \
             --notes "Prebuilt YaleVPN-PC binaries (CI). Linux binary works on modern distros;
-RFC 7748 keys via bundled cryptography; Windows binary needs the official
-WireGuard client (https://www.wireguard.com/install/) for the tunnel backend." \
+                       RFC 7748 keys via bundled cryptography; Windows binary needs the official
+                       WireGuard client (https://www.wireguard.com/install/) for the tunnel backend." \
             --generate-notes
